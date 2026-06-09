@@ -335,18 +335,29 @@ When the user passes `--roadmap <path>`, enter continuous orchestration mode. Th
 ```
 1. Read roadmap document, understand tier/priority structure
 2. Read repo state (git log, PROGRESS.md), confirm what's done and in-progress
-3. Select next buildable feature from current tier:
+3. Filter buildable features from current tier:
    - Skip blocked (needs hardware/payment/credentials/human action)
    - Skip completed
    - Prefer features that unblock other tasks
    - Stay within current tier (don't jump ahead)
-4. Execute standard Operating Loop for selected feature (decompose → dispatch → review → merge)
-5. After feature completion:
-   - Update PROGRESS.md
+4. Decide serial vs parallel:
+   - Only 1 buildable → execute directly
+   - Multiple buildable → check Concurrency Rules:
+     Write sets fully disjoint + no shared contract conflict → batch in parallel
+     Any overlap → serialize, one at a time
+5. Execute standard Operating Loop for selected feature(s) (decompose → dispatch → review → merge)
+6. After feature completion:
    - Push to origin/main
+   - Update PROGRESS.md
    - Return to Step 1, re-read roadmap, pick next
-6. Stop when a stop condition is hit
+7. Stop when a stop condition is hit
 ```
+
+**Prerequisites for cross-feature parallelism** (reusing Concurrency Rules):
+- Each feature's write set (allowed paths) is fully disjoint
+- No feature modifies shared contracts (proto/DDL/API definitions)
+- No feature requires hardware/payment/credentials
+- Max 2 features in parallel, never more than 3
 
 ### Selection Rules
 
