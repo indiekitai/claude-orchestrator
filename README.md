@@ -38,7 +38,7 @@ You end up as an ad-hoc project manager, juggling agent outputs in your head.
 │  6. Review each branch (boundary + gates + evidence)│
 │         │                                           │
 │         ▼                                           │
-│  7. Merge accepted / reject failed                  │
+│  7. Merge + integration test                        │
 │         │                                           │
 │         ▼                                           │
 │  8. Next batch (or stop)                            │
@@ -55,7 +55,10 @@ You end up as an ad-hoc project manager, juggling agent outputs in your head.
 | **Bounded Task Contracts** | Each agent gets explicit allowed/forbidden paths, gates (test/typecheck/build), and evidence requirements |
 | **Evidence Discipline** | Proof is labeled `direct`, `proxy`, or `blocked` — no exaggeration allowed (local test ≠ production proof) |
 | **Quality Gates** | Every branch is reviewed for boundary violations, gate results, and evidence strength before merge |
+| **Post-Merge Integration Test** | After merging a batch, cross-layer tests run to catch issues that individual gates miss |
 | **Concurrency Control** | Smart limits: 2 agents default, 3 max when safe, 1 when shared contracts are in play |
+| **State Transition Verification** | Dispatch prompts require agents to verify ALL consumers handle ALL state transitions, not just their own layer |
+| **Roadmap-Driven Mode** | Continuously build features from a roadmap doc — done → pick next → continue, until stop condition |
 
 ## 🚀 Quick Start
 
@@ -71,10 +74,16 @@ ln -s "$(pwd)" ~/.claude/skills/build-orchestrator
 
 ### 2. Use it
 
-In Claude Code, invoke the skill:
+**Single feature** (build one thing and stop):
 
 ```
 /build-orchestrator <describe the feature or milestone to build>
+```
+
+**Roadmap-driven** (continuously build features from a priority list):
+
+```
+/build-orchestrator --roadmap docs/roadmap.md
 ```
 
 Or trigger it naturally in conversation:
@@ -93,6 +102,7 @@ Phase 1 — Serial (shared contract)
 │  Agent 0: Proto Contract         │
 │  Define shared types & interfaces│
 │  ✓ merged to main               │
+│  ✓ pushed (worktree base trap!)  │
 └──────────────┬───────────────────┘
                │
 Phase 2 — Parallel fan-out (3 consumers)
@@ -106,18 +116,37 @@ Phase 2 — Parallel fan-out (3 consumers)
 │✓ review││✓ review││✓ review│
 │✓ merge ││✓ merge ││✓ merge │
 └────────┘└────────┘└────────┘
+               │
+Phase 3 — Post-merge
+┌──────────────────────────────────┐
+│  Integration test across all     │
+│  subsystems                      │
+│  Independent cross-agent review  │
+│  → caught 2 critical bugs       │
+└──────────────────────────────────┘
 
 Result: 4 agents, 1,400+ lines, one cycle
 ```
 
-The orchestrator handled the entire dependency graph: the shared contract had to land first (serial), then the three consumer agents ran simultaneously (parallel), each in its own worktree with disjoint file sets. After all returned, each branch was reviewed against its task contract and merged.
+The orchestrator handled the entire dependency graph: the shared contract had to land first (serial) **and be pushed** (so parallel agents' worktrees would include it), then the three consumer agents ran simultaneously (parallel), each in its own worktree with disjoint file sets. After all returned, each branch was reviewed against its task contract, merged, and a cross-layer integration test validated the combined result.
+
+## ⚠️ Lessons Learned (from production use)
+
+These are baked into the skill, but worth knowing:
+
+| Trap | What happened | Rule added |
+|------|---------------|------------|
+| **Worktree base trap** | Parallel agents' worktrees are created from `origin/main`, not local `main`. After merging a serial batch locally but not pushing, parallel agents didn't see the serial changes and redid the work | **Push after serial batch merge, before dispatching parallel batch** |
+| **Agent self-review misses cross-layer bugs** | 3 agents all self-reviewed, but an independent review found 2 critical state transition bugs across layers | **Independent cross-agent review required for state machine / cross-layer features** |
+| **Out-of-bounds agent can't merge** | An agent modified forbidden paths due to stale base. `git merge` would include the out-of-bounds changes | **Use `cherry-pick --no-commit` to extract only in-scope changes** |
+| **Individual gates pass but integration fails** | Each agent's tests passed, but combined code had cross-layer gaps | **Post-merge integration test after every batch** |
 
 ## ⚙️ Execution Model
 
 Claude Code agents are **synchronous** — they run within the current session and return results. This is not fire-and-forget.
 
 ```
-Dispatch → Agents run concurrently → All return → Review → Merge → Next batch
+Dispatch → Agents run concurrently → All return → Review → Merge → Integration test → Next batch
 ```
 
 Each agent call uses `isolation: "worktree"`, which gives it a dedicated git worktree. The orchestrator waits for all agents in a batch to complete, then reviews and merges before dispatching the next batch.
@@ -128,9 +157,10 @@ Each agent call uses `isolation: "worktree"`, which gives it a dedicated git wor
 |---|---|---|---|---|
 | **Parallelism** | Serial deps → parallel fan-out | Sequential phases | Ad-hoc, hope for the best | Pipeline stages |
 | **Isolation** | Git worktrees per agent | Single worktree | Shared worktree (conflict risk) | Separate repos/branches |
-| **Quality gates** | Per-branch review + evidence | Self-review only | Manual review | Automated tests only |
+| **Quality gates** | Per-branch review + evidence + integration test | Self-review only | Manual review | Automated tests only |
 | **Anti-shallow-slice** | Built-in classification gate | N/A | N/A | N/A |
 | **Shared contracts** | Serialized first, then fan-out | N/A | Manual coordination | N/A |
+| **Continuous mode** | Roadmap-driven auto-selection | N/A | N/A | N/A |
 | **Best for** | Width (many tasks) | Depth (one complex task) | Simple changes | Post-merge validation |
 
 ## 🔢 Concurrency Rules

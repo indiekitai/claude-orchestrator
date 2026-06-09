@@ -1,8 +1,8 @@
 ---
 name: build-orchestrator
-description: Multi-task parallel dispatch with quality gates. Decomposes large features into bounded task contracts, dispatches to isolated worktree agents in parallel, reviews, merges, and iterates. Complements paseo-epic (single-task depth) with multi-task width. Use when the user says "编排", "dispatch", "parallel build", "拆开做", "并行推", or wants multiple independent slices built and landed simultaneously.
+description: Multi-task parallel dispatch with quality gates. Decomposes large features into bounded task contracts, dispatches to isolated worktree agents in parallel, reviews, merges, and iterates. Supports two modes — single-feature (default) and roadmap-driven (continuous). Use when the user says "编排", "dispatch", "parallel build", "拆开做", "并行推", or wants multiple independent slices built and landed simultaneously.
 user-invocable: true
-argument-hint: "<feature, module, or milestone to build>"
+argument-hint: "[--roadmap <path>] <feature, module, or milestone to build>"
 ---
 
 # Build Orchestrator
@@ -16,6 +16,26 @@ Use this skill when the best move is not one big implementation in the current t
 Best for early development or large-module buildout where many slices can move in parallel. Poor for hardware-heavy acceptance, production deploys, payment tests, or steps requiring frequent human observation — keep those serialized and explicit.
 
 Treat this skill as a living runbook. When orchestration reveals a better rule, update the skill so future sessions inherit the correction.
+
+## Two Modes
+
+### Single-feature (default)
+
+```
+/build-orchestrator <feature description>
+```
+
+Build one feature and stop. Use when you know exactly what to build.
+
+### Roadmap-driven (continuous)
+
+```
+/build-orchestrator --roadmap docs/roadmap.md
+```
+
+Read a roadmap document, pick the next feature by priority, build it, then loop: done → re-read roadmap → pick next → continue, until a stop condition is hit.
+
+The orchestrator loops automatically: done → re-read roadmap → pick next → continue, until a stop condition is hit. See the "Roadmap-Driven Mode" section below for details.
 
 ## When To Use This Skill
 
@@ -44,6 +64,15 @@ Next batch (or stop)
 ```
 
 Primary tool: `Agent` with `isolation: "worktree"`. Multiple Agent calls in one message run concurrently. For complex multi-phase orchestration with schemas, use `Workflow` instead.
+
+### Worktree Base Trap (learned the hard way)
+
+`isolation: "worktree"` creates the worktree from **`origin/main`**, not local `main`. If you just merged a serial batch to local main but didn't push, parallel batch agents **won't see the serial batch's changes**.
+
+Mitigations (pick one):
+- **Recommended: push after serial batch merge**, then dispatch parallel batch. This keeps `origin/main` in sync with local main
+- Fallback: don't push, but explicitly tell parallel agents "your base is missing XYZ changes that are on local main — do not redo them, only build your own part." Less reliable than pushing
+- If an agent goes out of bounds and redoes serial batch work: use `git cherry-pick <commit> --no-commit` to extract only that agent's unique changes, discard duplicates
 
 ---
 
@@ -141,14 +170,32 @@ If accepted:
 
 ```bash
 git merge --no-ff <task-branch> -m "merge: <scope>"
-# Run post-merge gates
 git worktree remove <worktree-path>
 git branch -d <task-branch>
+```
+
+If the agent went out of bounds (modified forbidden paths or has stale base):
+```bash
+git cherry-pick <commit> --no-commit
+# Inspect staged changes, unstage out-of-bounds files
+git reset HEAD <forbidden-file>
+git checkout -- <forbidden-file>
+# Commit only the in-scope changes
+git commit -m "<scope>"
 ```
 
 If rejected: report blocking findings to the user. Leave the branch/worktree for targeted fix. To fix, send a follow-up to the same agent via `SendMessage` (preserves context), or dispatch a new agent with the rejection findings.
 
 Resolve simple doc conflicts by preserving both entries. If the conflict is in a shared contract, migration, core aggregate, or protocol — stop and review manually.
+
+### Post-Merge Integration Test (learned the hard way)
+
+After merging all branches in a batch, run a **cross-layer integration test** — don't rely solely on each agent's individual gate results. Individual layers passing doesn't mean they work together.
+
+```bash
+# Example: run tests across all affected subsystems after merge
+<project-specific test command covering all modified subsystems>
+```
 
 ### Step 7: Next Batch
 
@@ -195,6 +242,11 @@ or SENT status into direct proof.
 - Do not start subagents or second-level delegation.
 - Self-review your diff before final commit: check boundaries, forbidden paths,
   shared contracts, evidence strength, and gates.
+- If the feature involves state transitions (e.g. PENDING→ACTIVE→COMPLETED),
+  verify that ALL consumers handle ALL transitions — not just the happy path
+  in your own layer. Check: does the other layer receive the event that triggers
+  this transition? Does it have code to apply it? What happens if the state
+  change is never received?
 - If you need a human physical action (swipe card, plug USB, etc.), state the
   exact action, device, risk, and what the user should reply. Then stop and wait.
 
@@ -271,6 +323,65 @@ Stop dispatching and report status when:
 - Multiple candidates require product priority decisions
 
 When stopping, report: completed/merged tasks, active/blocked tasks, clean repo state, next best candidates, and blockers.
+
+---
+
+## Roadmap-Driven Mode
+
+When the user passes `--roadmap <path>`, enter continuous orchestration mode. The orchestrator autonomously selects the next feature from the roadmap document — no need for the user to specify what to build each time.
+
+### Execution Loop
+
+```
+1. Read roadmap document, understand tier/priority structure
+2. Read repo state (git log, PROGRESS.md), confirm what's done and in-progress
+3. Select next buildable feature from current tier:
+   - Skip blocked (needs hardware/payment/credentials/human action)
+   - Skip completed
+   - Prefer features that unblock other tasks
+   - Stay within current tier (don't jump ahead)
+4. Execute standard Operating Loop for selected feature (decompose → dispatch → review → merge)
+5. After feature completion:
+   - Update PROGRESS.md
+   - Push to origin/main
+   - Return to Step 1, re-read roadmap, pick next
+6. Stop when a stop condition is hit
+```
+
+### Selection Rules
+
+- **Don't jump tiers**: if the current tier still has buildable features, don't skip to the next tier
+- **Don't guess priorities**: among features without explicit priority ordering, pick the smallest write set / lowest risk first
+- **Don't do owner-gated tasks**: tasks needing product decisions, payment credentials, or human approval → mark skipped with reason
+- **Don't get stuck on one feature**: if an agent returns unsolvable issues (compile errors needing design decisions, tests needing external deps), mark blocked and move on
+- **Push after every feature**: keep origin/main in sync with local main to avoid the worktree base trap for the next feature
+
+### Progress Reporting
+
+After completing each feature, output a one-line progress summary:
+
+```
+[Tier 1] ✅ Feature A (3 commits, 450 lines) → ⏭️ Next: Feature B
+[Tier 1] ⏭️ Feature B → skipped: blocked (needs payment backend)
+```
+
+### Stop Conditions (roadmap-specific)
+
+In addition to the general stop conditions:
+
+- Current tier has no remaining buildable features (all blocked or completed) — report tier status, wait for user decision on next tier
+- 2 consecutive features fail (agent results rejected at review) — likely a systemic issue, stop and investigate
+- Roadmap document structure is unclear, can't determine next feature — ask user to update roadmap
+
+---
+
+## Independent Cross-Agent Review
+
+After all batches for a feature are merged, run an independent review of the entire feature diff using a separate review tool or agent. This catches blind spots shared by the orchestrator and its agents — they all use the same model and may share the same biases.
+
+In real-world testing, an independent review caught 2 critical bugs (missing state transition handling across layers + silent cancellation edge case) that both agent self-review and orchestrator review missed.
+
+**Recommendation**: for features involving **state machines** or **cross-layer event flows**, an independent post-merge review is not optional. Fix findings before marking the feature complete.
 
 ---
 
