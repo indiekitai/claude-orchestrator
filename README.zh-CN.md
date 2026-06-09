@@ -1,6 +1,6 @@
 [English](README.md) | [中文](README.zh-CN.md)
 
-# claude-build-orchestrator
+# claude-orchestrator
 
 **多个 AI Agent 并行构建你的功能，你只负责 review。** 一个 Claude Code skill，将大型功能拆解为有边界的任务契约，派发到隔离的 worktree agent 并行执行，强制质量门禁，最后合并结果——一个编排周期搞定。
 

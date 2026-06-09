@@ -1,6 +1,6 @@
 [English](README.md) | [中文](README.zh-CN.md)
 
-# claude-build-orchestrator
+# claude-orchestrator
 
 **Parallel AI agents building your feature while you review.** A Claude Code skill that decomposes large features into bounded task contracts, dispatches them to isolated worktree agents in parallel, enforces quality gates, and merges the results — all in one orchestration cycle.
 
