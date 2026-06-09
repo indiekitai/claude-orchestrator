@@ -124,11 +124,11 @@ Each agent call uses `isolation: "worktree"`, which gives it a dedicated git wor
 
 ## 📊 vs Other Approaches
 
-| | build-orchestrator | paseo-epic | Manual agents | CI/CD workflow |
+| | build-orchestrator | Single agent | Manual multi-agent | CI/CD workflow |
 |---|---|---|---|---|
-| **Parallelism** | Serial deps → parallel fan-out | Single agent, sequential phases | Ad-hoc, hope for the best | Pipeline stages |
+| **Parallelism** | Serial deps → parallel fan-out | Sequential phases | Ad-hoc, hope for the best | Pipeline stages |
 | **Isolation** | Git worktrees per agent | Single worktree | Shared worktree (conflict risk) | Separate repos/branches |
-| **Quality gates** | Per-branch review + evidence | Adversarial review phase | Manual review | Automated tests only |
+| **Quality gates** | Per-branch review + evidence | Self-review only | Manual review | Automated tests only |
 | **Anti-shallow-slice** | Built-in classification gate | N/A | N/A | N/A |
 | **Shared contracts** | Serialized first, then fan-out | N/A | Manual coordination | N/A |
 | **Best for** | Width (many tasks) | Depth (one complex task) | Simple changes | Post-merge validation |

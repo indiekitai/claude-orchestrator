@@ -17,15 +17,15 @@ Best for early development or large-module buildout where many slices can move i
 
 Treat this skill as a living runbook. When orchestration reveals a better rule, update the skill so future sessions inherit the correction.
 
-## vs Existing Skills
+## When To Use This Skill
 
-| Skill | When | Difference |
+| Approach | When | Difference |
 |---|---|---|
-| `paseo-epic` | One deep task: research → plan → adversarial review → implement → deliver | Sequential phases, single agent per phase, plan file as source of truth |
-| `paseo-orchestrator` | Team coordination via chat rooms | Persistent agents, chat-based coordination, roles |
+| **Single agent** | One focused task, sequential phases | Simple, no coordination overhead |
+| **Manual multi-agent** | Ad-hoc parallel agents, you track everything | Flexible but error-prone, no merge safety |
 | **build-orchestrator** | Multiple independent tasks in parallel with quality gates | Bounded task contracts, worktree isolation, anti-shallow-slice enforcement, batch dispatch-review-merge cycles |
 
-Choose `paseo-epic` for depth. Choose this skill for width.
+Use a single agent for depth (one complex task). Use this skill for width (many independent tasks in parallel).
 
 ## Execution Model
 
