@@ -169,6 +169,8 @@ Check:
 If accepted:
 
 ```bash
+# Must be on main before merging (learned the hard way: merging on a stale branch loses changes)
+git checkout main
 git merge --no-ff <task-branch> -m "merge: <scope>"
 git worktree remove <worktree-path>
 git branch -d <task-branch>
@@ -176,17 +178,33 @@ git branch -d <task-branch>
 
 If the agent went out of bounds (modified forbidden paths or has stale base):
 ```bash
+git checkout main
 git cherry-pick <commit> --no-commit
 # Inspect staged changes, unstage out-of-bounds files
 git reset HEAD <forbidden-file>
 git checkout -- <forbidden-file>
 # Commit only the in-scope changes
 git commit -m "<scope>"
+# Clean up the out-of-bounds agent's worktree and branch
+git worktree remove <worktree-path>
+git branch -D <task-branch>
 ```
 
 If rejected: report blocking findings to the user. Leave the branch/worktree for targeted fix. To fix, send a follow-up to the same agent via `SendMessage` (preserves context), or dispatch a new agent with the rejection findings.
 
 Resolve simple doc conflicts by preserving both entries. If the conflict is in a shared contract, migration, core aggregate, or protocol — stop and review manually.
+
+### Cleanup Verification (learned the hard way)
+
+After all merges and cleanups in a batch, verify:
+
+```bash
+git branch --show-current          # Must be main
+git branch                         # Only main (and long-lived branches) should remain
+git worktree list                  # Only the main working tree should remain
+```
+
+**Do not skip this.** Leftover branches and worktrees pollute the next batch's agents (worktree lock conflicts, branch name collisions, accidental merge into a stale branch).
 
 ### Post-Merge Integration Test (learned the hard way)
 
@@ -197,9 +215,10 @@ After merging all branches in a batch, run a **cross-layer integration test** �
 <project-specific test command covering all modified subsystems>
 ```
 
-### Step 7: Next Batch
+### Step 7: Push + Next Batch
 
 After merging accepted branches and resolving rejected ones:
+- **Push to origin/main** (both single-feature and roadmap modes) — keeps origin/main in sync with local main, avoids the worktree base trap for the next batch
 - Update progress docs if the project uses them
 - Re-read repo state (Step 1)
 - Decompose next batch (Step 2)
@@ -239,6 +258,9 @@ or SENT status into direct proof.
 - Read project CLAUDE.md and relevant rules before editing.
 - Create branch `build/<task-slug>` and commit only scoped changes.
 - Do not touch files outside allowed paths.
+- Do not revert, delete, or modify code you did not write in this task.
+  You are not alone in the codebase — other agents may have added files
+  or changed code that looks unfamiliar. Adapt to current state, don't undo it.
 - Do not start subagents or second-level delegation.
 - Self-review your diff before final commit: check boundaries, forbidden paths,
   shared contracts, evidence strength, and gates.
