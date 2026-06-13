@@ -181,6 +181,10 @@ Each agent call uses `isolation: "worktree"`, which gives it a dedicated git wor
 
 The goal is to reduce calendar time without increasing merge risk. Don't open more agents just because you can.
 
+## 🔗 Related Projects
+
+- **[codex-orchestrator](https://github.com/indiekitai/codex-orchestrator)** — The sibling project for Codex App users. Same orchestration philosophy (bounded contracts, evidence discipline, anti-shallow-slice), but adapted for Codex App's async session model with a Go CLI helper for persistent ledger, heartbeat, routines, and policy/eval.
+
 ## 📄 License
 
 MIT — see [LICENSE](LICENSE)
