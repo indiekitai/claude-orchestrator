@@ -92,6 +92,8 @@ Read project progress/roadmap docs if present (e.g. `PROGRESS.md`, roadmap files
 
 If shared contract surfaces exist (proto definitions, DB migrations, API contracts, command/event handlers), identify them — they must be serialized before parallel work.
 
+**Contract sync gate**: if the repo has a contract sync gate that requires same-change consumers (e.g. a proto sync check requiring multiple consumers to update after `.proto` changes), do not dispatch an unmergeable "contract-only" branch. Keep the work serialized, but include the minimal required consumer compile/wiring updates in that same serial task, or stop with a blocker before editing.
+
 ### Step 2: Decompose
 
 Choose the next **feature package** before choosing individual tasks:
@@ -104,8 +106,12 @@ For each candidate task, determine:
 - Allowed paths (directories/files this agent may edit)
 - Forbidden paths (shared contracts, other agents' domains)
 - Required gates (tests, typecheck, build, lint)
-- Evidence type needed (`direct` / `proxy` / `blocked`)
+- Evidence type needed (`direct` / `proxy` / `local` / `blocked`)
 - Whether it needs hardware, payment, or human action (if yes → serialize, don't parallel-dispatch)
+
+**Package lane guard**: do not fill idle slots by grabbing unrelated "safe" tasks from the global backlog merely because their write sets don't conflict. After a worker finishes, first ask "what is the next useful task inside the current feature package?" Only switch packages when the current package is blocked, its local scope is genuinely drained, or the user explicitly asks to change focus.
+
+**Package ledger** (lightweight): for multi-batch features, keep a brief mental or written record of: milestone outcome, active worker contracts, merge order, gates, and what evidence remains blocked. This prevents the orchestrator from losing track of the package shape across batches — especially important after context compression.
 
 ### Step 3: Anti-Shallow-Slice Gate
 
@@ -118,9 +124,11 @@ Before dispatching a new task in a domain that already has a partial closure, cl
 | `blocked-removal` | Removes a named blocker preventing the next complete flow | Missing write API, stale device path, missing auth seam |
 | `owner-gated` | Records the exact human/product/payment decision that blocks progress | Needs product priority call, payment backend access, credentials |
 
-**Reject** if the candidate is only another read-only shell, placeholder page, static review, copy checklist, local fixture summary, or first guard in an already-partial domain — unless it clearly removes a named blocker.
+**Reject** if the candidate is only another read-only shell, placeholder page, static review, copy checklist, local fixture summary, or first guard in an already-partial domain — unless it clearly removes a named blocker. The task prompt must answer: what complete feature path does this advance, what previous partial closure does it build on, and what will still remain after this slice.
 
-If the same domain has two or more merged partial closures and no single blocker prevents progress, stop dispatching standalone slices. Promote to a feature-package plan (Step 2).
+For domains with several partial closures, **prefer fewer larger vertical tasks over many small horizontal tasks**. A vertical task that stays `local`/`proxy` (because hardware or production is unavailable) is fine, as long as it exercises a coherent local flow rather than adding another isolated surface.
+
+If the same domain has two or more merged partial closures and no single blocker prevents progress, stop dispatching standalone slices. Promote to a feature-package plan (Step 2). The package plan should name the user-visible capability, list the minimum worker branches needed to make it coherent, and define the merge order.
 
 ### Step 4: Dispatch
 
@@ -143,6 +151,8 @@ Each agent gets its own git worktree automatically. When it finishes, the result
 
 **Do not dispatch and then start doing your own implementation work.** You are the orchestrator. Wait for agent results, then review.
 
+**If dispatch fails** (agent errors, worktree setup fails, etc.), stay in the orchestration layer: report the dispatch/tooling blocker, fix the dispatch method, or ask the user. Do not implement the task yourself just because dispatch failed (ORC-07). Direct implementation is only acceptable as a takeover when an agent already produced a useful partial diff that needs finishing, or when the user explicitly asks you to do the task yourself.
+
 ### Step 5: Review
 
 For every completed agent, inspect:
@@ -160,9 +170,13 @@ Check:
 - No forbidden shared contracts changed
 - Self-review present in agent output
 - Gates ran and passed (tests, typecheck, build)
-- Evidence labels honest (`direct` / `proxy` / `blocked`)
-- No evidence exaggeration (local unit test claimed as direct proof, TCP reachable claimed as payment proof)
+- Evidence labels honest (`direct` / `proxy` / `local` / `blocked`)
+- No evidence exaggeration (local unit test claimed as direct proof, TCP reachable claimed as payment proof, `local` claimed as `proxy`)
 - Docs/progress updates factual
+- **Claim verification**: if the agent claims "tests passed" / "build succeeded" / "no forbidden paths touched", verify that actual command output or diff supports the claim. Don't blindly trust self-reported completion.
+- **Idempotency check**: if the task changes cleanup, retry, event/outbox writes, lifecycle APIs, migrations, aggregate versioning, or unique constraints — verify the self-review discusses repeated execution safety. Running the action twice must either be safe or produce a documented `blocked` / product decision.
+- **Authorization awareness**: review evidence does not by itself authorize merge, push, cleanup, release, or deploy. Keep these decisions separate.
+- **Live proof gate**: if the task changes a runtime, production, device, payment, hardware, provider, or external-service boundary, `direct` proof or an explicit item-specific waiver is required before landing. `local` gate passing is not sufficient for these boundaries.
 
 ### Step 6: Merge and Cleanup
 
@@ -250,9 +264,11 @@ Why this is not repeating an already-completed first slice: <explanation>
 - git diff --check
 
 ## Evidence
-Label all evidence as `direct`, `proxy`, or `blocked`.
-Do not upgrade local/unit/integration tests, TCP reachability, screenshots,
-or SENT status into direct proof.
+Label all evidence as `direct`, `proxy`, `local`, or `blocked`.
+- `local` = dev/test environment only (unit test, local build, static analysis)
+- `proxy` = substitute environment or intermediary (staging, TCP check, screenshot)
+- `direct` = real target environment (device readback, production log, payment confirmation)
+Do not upgrade between levels.
 
 ## Rules
 - Read project CLAUDE.md and relevant rules before editing.
@@ -271,6 +287,10 @@ or SENT status into direct proof.
   change is never received?
 - If you need a human physical action (swipe card, plug USB, etc.), state the
   exact action, device, risk, and what the user should reply. Then stop and wait.
+- If the task changes cleanup, retry, event/outbox writes, lifecycle APIs,
+  migrations, aggregate/versioning, or unique constraints, explicitly self-review
+  repeated execution and idempotency: running the action twice must either be
+  safe or produce a documented blocked/product decision.
 
 ## Handoff
 Report: branch, final commit(s), changed files, gate results, evidence labels,
@@ -297,16 +317,31 @@ Use **one** (serialize) when:
 
 Do not open more agents just because capacity exists. Parallelism should reduce calendar time without increasing merge risk.
 
+**Available slots ≠ dispatch permission.** Before dispatching a new agent, check:
+- Is the current feature package still the right focus? (don't scatter across unrelated work)
+- Are there unreviewed/unmerged branches from the current batch? (review first, then dispatch)
+- Does the new task genuinely belong to the same package lane?
+If an agent just finished and freed a slot, the default is to review/merge/cleanup first, not to immediately fill the slot.
+
 ---
 
 ## Evidence Discipline
 
-For hardware, payment, deploy, and environment work:
+Label all proof with one of four levels:
 
-- Label proof as `direct`, `proxy`, or `blocked`
-- `SENT` / TCP reachable / local test / screenshot / user oral confirmation = **proxy at best**
-- `direct` requires: device readback, callback-backed ACKED, processor response, DB/API artifact, or equivalent physical evidence
-- If human action is needed, pause at a safe checkpoint, state the exact action, and wait for confirmation before continuing
+| Level | Meaning | Examples |
+|---|---|---|
+| `direct` | Observed in the real target environment | Device readback, callback-backed ACKED, processor response, DB/API artifact, production log, real payment confirmation |
+| `proxy` | Observed in a substitute environment or through an intermediary | Staging test, TCP reachability, screenshot, user oral confirmation, `SENT` status, mock service response |
+| `local` | Observed only in the local dev/test environment | Unit test passing, local build succeeding, `git diff --check` clean, local integration test, static analysis passing |
+| `blocked` | Cannot be observed — needs human action, credentials, hardware, or production access | Payment backend unavailable, device not connected, credentials missing, product decision pending |
+
+Rules:
+
+- Do not upgrade `local` to `proxy` or `proxy` to `direct`. Each level means what it means.
+- `SENT` / TCP reachable / local test / screenshot / user oral confirmation = **proxy at best**.
+- `direct` requires: device readback, callback-backed ACKED, processor response, DB/API artifact, or equivalent physical evidence.
+- If human action is needed, pause at a safe checkpoint, state the exact action, and wait for confirmation before continuing.
 
 If the project has its own evidence rules, those take precedence.
 
@@ -331,6 +366,13 @@ Prefer package-sized outcomes:
 - Local runtime proof for a previously source-only flow
 
 Do not use package planning as permission for a huge unreviewable branch. Split into mergeable worker contracts, but each must be tied to the package outcome.
+
+**Package lane continuity**: in continuous/roadmap mode, keep the next-batch decision package-scoped. After a worker is merged and cleaned, first ask "what is the next useful worker inside the current package?" Only switch packages when:
+- Current package is blocked by owner/hardware/provider dependencies
+- Its local scope is genuinely drained (all buildable tasks done)
+- The user explicitly asks to change focus
+
+Record the switch reason concretely: `package-closed`, `local-scope-drained`, `blocked`, `owner-gated`, or `shared-blocker-removal`. Do not switch packages just because there is an available slot or another safe task exists.
 
 ---
 
@@ -415,6 +457,97 @@ After all batches for a feature are merged, run an independent review of the ent
 In real-world testing, an independent review caught 2 critical bugs (missing state transition handling across layers + silent cancellation edge case) that both agent self-review and orchestrator review missed.
 
 **Recommendation**: for features involving **state machines** or **cross-layer event flows**, an independent post-merge review is not optional. Fix findings before marking the feature complete.
+
+**Multi-model review**: when available, prefer a reviewer from a different model family (e.g. use `/pi-review` or Codex for a Claude-orchestrated feature). Same-model review catches formatting and logic issues but shares the same reasoning blind spots. Cross-model review is `proxy`/advisory evidence — it can block acceptance or inform the orchestrator, but does not by itself authorize merge, push, or deploy.
+
+Good triggers for independent review:
+- 3-5 related worker branches merged into one feature package
+- Shared contract / API / DB schema changes
+- Payment / security / hardware / production boundary changes
+- A package that will be described as one user-facing outcome
+
+---
+
+## Decision Brief Discipline
+
+When a task is blocked and needs user input, do not ask with only a task ID, vague blocker, or bare URL. Produce a decision-ready brief:
+
+- **What** changes or is blocked
+- **Why** the decision is needed now (not later)
+- **Evidence gathered**: what local/proxy/direct evidence already exists
+- **Evidence missing**: what proof is still needed
+- **Options**: the exact choices available and the tradeoff of each
+- **Recommendation**: what the orchestrator thinks is best and why
+- **Branch/worktree**: whether to keep, retry, or clean up later
+
+This also applies when requesting human physical actions (device, payment, deploy). State the exact action, device/resource, what NOT to do, and what the user should reply.
+
+---
+
+## Orchestrator Anti-Patterns
+
+Named common mistakes to check against during review and dispatch. These are distilled from real orchestration failures.
+
+| ID | Anti-Pattern | What Goes Wrong |
+|---|---|---|
+| ORC-01 | **Shallow-slice disguise** | Renaming a shallow slice doesn't make it vertical. "Add placeholder page" → "Create initial UI surface" is still shallow |
+| ORC-02 | **Evidence upgrade** | Claiming `local` test passing as `proxy` or `direct` proof. Unit test ≠ staging test ≠ production proof |
+| ORC-03 | **Blind self-report trust** | Agent says "all tests pass" but no command output in the handoff. Verify claims against actual evidence |
+| ORC-04 | **Slot-filling dispatch** | Available slot → grab unrelated backlog item. Breaks package lane continuity, scatters daily progress |
+| ORC-05 | **Review-as-authorization** | Treating a code review as permission to merge + push + deploy + cleanup. These are separate decisions |
+| ORC-06 | **Constraint amnesia** | After context compression, forgetting the original allowed/forbidden paths and dispatching out-of-scope work |
+| ORC-07 | **Orchestrator writes worker code** | Dispatch fails → orchestrator implements the task itself instead of fixing the dispatch. Stay in the orchestration layer |
+| ORC-08 | **Merge before review** | Merging a branch because the agent said "done" without actually inspecting the diff, boundaries, and gates |
+| ORC-09 | **Silent stop** | Finishing one batch and stopping without reporting status, next candidates, or blockers. Always report when stopping |
+| ORC-10 | **Idempotency blindness** | Merging cleanup/retry/event/lifecycle code without checking what happens on repeated execution |
+
+Use these IDs in review comments and rejection reasons for clarity.
+
+---
+
+## Batch Status Report
+
+After completing each dispatch-review-merge cycle, output a structured status report:
+
+```
+## Batch Status
+
+### Completed
+- [task-slug]: merged (3 commits, 120 lines) — evidence: local
+- [task-slug]: merged (1 commit, 45 lines) — evidence: proxy
+
+### Rejected
+- [task-slug]: forbidden path violation (touched shared proto) — branch kept for fix
+
+### Blocked
+- [task-slug]: needs payment backend credentials — owner-gated
+
+### Repo State
+- Branch: main, clean
+- Pushed: yes/no
+- Worktrees: only main remaining
+
+### Next
+- Next candidate: [description] (package: [current package])
+- Or: stop reason — [why]
+```
+
+Keep it factual and brief. The user should be able to glance at this and know exactly where things stand.
+
+---
+
+## Continuous Run Discipline
+
+When running in roadmap-driven mode or long multi-batch sessions:
+
+**Context compression resilience**: long orchestration sessions will hit context compression. To survive it:
+- Keep the package ledger (milestone, active workers, merge order, blocked evidence) in a progress doc or IMPL.md, not only in chat
+- The Batch Status Report at each cycle serves as a checkpoint — if context is compressed, the last report is the recovery point
+- After compression, re-read repo state (Step 1) and progress docs before dispatching — do not rely on compressed memory for allowed/forbidden paths or package decisions
+
+**Phase transitions**: when a phase changes (e.g. from many small evidence closures to a larger feature module), consider starting a fresh orchestrator session rather than stretching the current one indefinitely. Treat repository docs and merged commits as the handoff surface, not compressed chat history. Use `/handoff` to create a durable handoff document if needed.
+
+**Progress coherence**: in continuous runs, optimize for a coherent product/module story that a human can summarize in a daily report — not for "safe and mergeable". Three related workers advancing one feature package > three unrelated workers touching three different modules.
 
 ---
 

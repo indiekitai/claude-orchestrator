@@ -53,11 +53,15 @@ You end up as an ad-hoc project manager, juggling agent outputs in your head.
 | **Worktree Isolation** | Each agent works in its own git worktree — no merge conflicts during development |
 | **Anti-Shallow-Slice Gate** | Rejects placeholder pages, read-only shells, and duplicate first-slices. Every dispatched task must be a `vertical-completion`, `runtime-proof`, `blocked-removal`, or `owner-gated` |
 | **Bounded Task Contracts** | Each agent gets explicit allowed/forbidden paths, gates (test/typecheck/build), and evidence requirements |
-| **Evidence Discipline** | Proof is labeled `direct`, `proxy`, or `blocked` — no exaggeration allowed (local test ≠ production proof) |
-| **Quality Gates** | Every branch is reviewed for boundary violations, gate results, and evidence strength before merge |
+| **4-Level Evidence Discipline** | Proof is labeled `direct`, `proxy`, `local`, or `blocked` — no upgrading between levels (local test ≠ staging test ≠ production proof) |
+| **Claim Verification** | Agent self-reports ("tests pass", "no forbidden paths touched") are verified against actual command output and diff — not blindly trusted |
+| **Quality Gates** | Every branch is reviewed for boundary violations, gate results, evidence strength, and idempotency before merge |
 | **Post-Merge Integration Test** | After merging a batch, cross-layer tests run to catch issues that individual gates miss |
 | **Concurrency Control** | Smart limits: 2 agents default, 3 max when safe, 1 when shared contracts are in play |
 | **State Transition Verification** | Dispatch prompts require agents to verify ALL consumers handle ALL state transitions, not just their own layer |
+| **Package Lane Guard** | Prevents slot-filling with unrelated backlog items — keeps work focused on one feature package at a time |
+| **Decision Brief Discipline** | When blocked, produces structured consultation briefs with evidence, options, and recommendations — not bare blocker text |
+| **Anti-Pattern Checklist** | 10 named orchestration mistakes (ORC-01 through ORC-10) for systematic review — evidence upgrade, slot-filling, constraint amnesia, etc. |
 | **Roadmap-Driven Mode** | Continuously build features from a roadmap doc — done → pick next → continue, until stop condition |
 
 ## 🚀 Quick Start
@@ -140,6 +144,10 @@ These are baked into the skill, but worth knowing:
 | **Agent self-review misses cross-layer bugs** | 3 agents all self-reviewed, but an independent review found 2 critical state transition bugs across layers | **Independent cross-agent review required for state machine / cross-layer features** |
 | **Out-of-bounds agent can't merge** | An agent modified forbidden paths due to stale base. `git merge` would include the out-of-bounds changes | **Use `cherry-pick --no-commit` to extract only in-scope changes** |
 | **Individual gates pass but integration fails** | Each agent's tests passed, but combined code had cross-layer gaps | **Post-merge integration test after every batch** |
+| **Blind self-report trust** | Agent claimed "all tests pass" in handoff but no command output was provided. Orchestrator merged without verifying | **Claim verification: verify self-reported completion against actual command output and diff** |
+| **Slot-filling scatters progress** | Available concurrency slot → grabbed unrelated backlog item → daily progress read as random cleanup instead of coherent feature advance | **Package lane guard: stay in current feature package, don't scatter** |
+| **Evidence upgrade** | Local unit test passing was labeled as `proxy` proof in review docs. Over time, `proxy` drifted to be treated as `direct` | **4-level evidence discipline with strict no-upgrade rule** |
+| **Contract-only branch unmergeable** | Dispatched a proto-only branch, but the repo's sync check required consumers to update in the same change. Branch could never merge alone | **Contract sync gate: include minimal consumer updates in serial contract task** |
 
 ## ⚙️ Execution Model
 
