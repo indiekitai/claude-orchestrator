@@ -145,6 +145,9 @@ ln -s "$(pwd)" ~/.claude/skills/build-orchestrator
 | **填槽导致进度散乱** | 有空闲并发槽 → 从全局 backlog 抓了无关任务 → 日报看起来像随机清理而不是功能推进 | **功能包主线守卫：留在当前功能包，不散射** |
 | **证据升级** | 本地单元测试通过被标记为 `proxy`。随时间推移 `proxy` 被当成 `direct` 处理 | **四级证据纪律，严禁跨级升级** |
 | **纯契约分支无法合并** | 派发了只改 proto 的分支，但 repo 的同步检查要求消费者在同一个 change 里更新。分支永远无法独立合并 | **契约同步门禁：串行任务要包含最小的消费者更新** |
+| **同模块并行** | 2 个 agent 给同一个 Android app 加新页面。都改了 strings.xml + 导航 + DI。43% 的 batch 有合并冲突，每次 10-15 分钟——超过并行省的时间 | **同模块任务串行。只在不同模块间并行** |
+| **幽灵提交** | Agent 报"完成"但没执行 `git commit`。编排器以为有 commit 直接 merge——"Already up to date" | **merge 前必 `git status`。dispatch prompt 第一条就是 commit 强制（修复率 40%→100%）** |
+| **Codex review 抓到编排器抓不到的** | 4 次 Codex review 发现 10 个问题（2×P1 + 8×P2）：版本冲突、回归、日期 crash、浮点截断、假成功 toast。agent 自审和编排器 diff review 零发现 | **异模型 review 是强制的，不是可选的。大 diff 需要 600 秒 timeout** |
 
 ## ⚙️ 执行模型
 

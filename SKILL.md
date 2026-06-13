@@ -327,25 +327,31 @@ Adapt the template per task. Hardware/payment tasks need explicit device ownersh
 
 ## Concurrency Rules
 
-Default to **two** parallel agents. Allow **three** only when all of:
+**Default to one agent** when tasks are in the **same module** and share navigation/resource/config files (e.g. multiple new pages in the same Android app or web app). Serialize: dispatch A → merge → push → dispatch B.
+
+**Allow two parallel agents** only when write sets are in **different modules or different projects** (e.g. backend service + frontend app, or two independent libraries).
+
+Allow **three** only when all of:
 - No shared contract, migration, or API branch is active
 - No hardware/payment task is active
 - Main is clean
-- Each task has a separate module and disjoint write set
+- Each task has a separate module and fully disjoint write set
 
 Use **one** (serialize) when:
 - A shared contract is being edited (proto, migration, API definition)
 - Hardware or payment device ownership is involved
 - The next step depends on a result from the current task
 - Two tasks would edit the same shared contract / migration / core aggregate / review file
+- **Two tasks are in the same module and both add new pages/screens** (they will both touch navigation, strings, DI, and config — merge conflicts are guaranteed and cost more time than serialization saves)
 
-Do not open more agents just because capacity exists. Parallelism should reduce calendar time without increasing merge risk.
+Do not open more agents just because capacity exists. Parallelism should reduce calendar time without increasing merge risk. **In practice, same-module parallelism almost never saves time** — merge conflict resolution (10-15 min per batch) exceeds the wall-clock gain from concurrent agents.
 
-**Shared resource files**: some files are legitimately edited by multiple parallel agents (e.g. `strings.xml`, navigation graphs, DI modules, route registries). These are NOT shared contracts — they don't need serialization. Instead:
-- Tell each agent in the dispatch prompt to only append, not reformat or reorder
-- Expect auto-merge to handle most cases (Git merges appends well)
-- If auto-merge fails, resolve manually by preserving both agents' additions
-- If two agents create the same type/class/enum name independently, rename one after merge to avoid redeclaration conflicts (e.g. prefix with scope: `OdPaymentStatus` vs `PaymentStatus`)
+**Shared resource files**: files that every new page/feature touches within a module (e.g. `strings.xml`, navigation graphs, DI modules, route registries). When these overlap between two tasks, **serialize, don't parallelize**. The "only append" strategy helps git auto-merge (~57% success rate in testing), but the 43% failure rate means manual conflict resolution is frequent enough to negate parallelism benefits.
+
+If you must run two agents in the same module (user explicitly requests it), mitigate with:
+- Tell each agent to only append, not reformat or reorder shared files
+- Use scoped naming for new types (e.g. `OdPaymentStatus` vs `PaymentStatus`)
+- Budget 10-15 minutes per batch for manual conflict resolution
 
 **Available slots ≠ dispatch permission.** Before dispatching a new agent, check:
 - Is the current feature package still the right focus? (don't scatter across unrelated work)
@@ -492,20 +498,27 @@ In real-world testing, an independent review caught 2 critical bugs (missing sta
 
 ### Codex CLI Review (recommended cross-model review method)
 
-After each batch merge + push, run a Codex CLI review. Can run in the background without blocking the next batch dispatch:
+After each batch merge + push, run a Codex CLI review. **Use 600-second timeout** (the model needs to read project context ~600 lines before reviewing large diffs 1000+ lines). Can run in the background without blocking the next batch dispatch:
 
 ```bash
-# Synchronous (wait for result before continuing)
-codex -a full-auto -q "Review the last N commits on main. Focus on: logic errors, state transition gaps, cross-layer integration issues, naming collisions. Report findings as HIGH/MEDIUM/LOW."
+# Recommended (synchronous, 600s timeout)
+timeout 600 codex review --base <pre-merge-commit>
 
 # Or background (don't block next batch)
 # Use Bash run_in_background, handle results when they arrive
 ```
 
+**CLI parameter notes**:
+- `--base` and positional `[PROMPT]` are mutually exclusive
+- `--wait` was removed in Codex 0.139.0
+- `--uncommitted` reviews uncommitted changes (e.g. IMPL.md review)
+
 Review results:
-- HIGH findings → fix immediately, in current or next batch
-- MEDIUM findings → record, fix within current feature package
+- P1 / HIGH findings → fix immediately, in current or next batch
+- P2 / MEDIUM findings → record, fix within current feature package
 - LOW findings → record but don't block
+
+In real-world testing (12-task overnight run), Codex review caught 2×P1 + 8×P2 = 10 findings that agent self-review and orchestrator mechanical review both missed: version conflict in optimistic concurrency, navigation entry regression, date parsing crash, floating-point cents truncation, fake success toast, and pay button showing total instead of balance.
 
 Good triggers for independent review:
 - 3-5 related worker branches merged into one feature package
@@ -549,6 +562,8 @@ Named common mistakes to check against during review and dispatch. These are dis
 | ORC-10 | **Idempotency blindness** | Merging cleanup/retry/event/lifecycle code without checking what happens on repeated execution |
 | ORC-11 | **Phantom commit** | Assuming the agent committed because it said "done". Always `git status` the worktree first — uncommitted work is the #1 Claude Code subagent failure mode |
 | ORC-12 | **Parallel name collision** | Two agents independently create the same type/enum/class name. Caught only after merge when build fails. Mitigate with scoped naming in dispatch prompts |
+| ORC-13 | **Same-module parallelism** | Two new-page tasks in the same module dispatched in parallel. Both touch strings/navigation/DI → guaranteed merge conflicts costing 10-15 min each. Serialize instead |
+| ORC-14 | **Stale worktree base** | Local main has unpushed merge commits. `isolation: "worktree"` creates from `origin/main`, not local main → agent's base is stale → merge produces "Already up to date" or duplicate work. Always push before dispatching |
 
 Use these IDs in review comments and rejection reasons for clarity.
 

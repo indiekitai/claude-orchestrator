@@ -148,6 +148,9 @@ These are baked into the skill, but worth knowing:
 | **Slot-filling scatters progress** | Available concurrency slot → grabbed unrelated backlog item → daily progress read as random cleanup instead of coherent feature advance | **Package lane guard: stay in current feature package, don't scatter** |
 | **Evidence upgrade** | Local unit test passing was labeled as `proxy` proof in review docs. Over time, `proxy` drifted to be treated as `direct` | **4-level evidence discipline with strict no-upgrade rule** |
 | **Contract-only branch unmergeable** | Dispatched a proto-only branch, but the repo's sync check required consumers to update in the same change. Branch could never merge alone | **Contract sync gate: include minimal consumer updates in serial contract task** |
+| **Same-module parallelism** | 2 agents adding new pages to the same Android app. Both touched strings.xml + navigation + DI. 43% of batches had merge conflicts costing 10-15 min each — more than parallelism saved | **Serialize same-module tasks. Parallel only across different modules** |
+| **Phantom commit** | Agent reported "done" but never ran `git commit`. Orchestrator assumed commit existed and tried to merge — got "Already up to date" | **Always `git status` before merge. Commit enforcement rule in dispatch prompt (#1 failure mode, 40%→100% fix rate)** |
+| **Codex review catches what orchestrator can't** | 4 Codex reviews found 10 findings (2×P1 + 8×P2): version conflict, regression, date crash, float truncation, fake success toast. Zero found by agent self-review or orchestrator diff review | **Cross-model review is mandatory, not optional. Budget 600s timeout for large diffs** |
 
 ## ⚙️ Execution Model
 
