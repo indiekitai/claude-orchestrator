@@ -155,12 +155,24 @@ Each agent gets its own git worktree automatically. When it finishes, the result
 
 ### Step 5: Review
 
-For every completed agent, inspect:
+For every completed agent, first check commit status:
 
 ```bash
-# In the agent's worktree
+# Check if agent actually committed (the #1 failure mode)
 git -C <worktree> status --short --branch
-git -C <worktree> log --oneline -5
+git -C <worktree> log --oneline -3
+```
+
+**If the agent has uncommitted changes** (modified files in `git status` but no new commit on branch): this is common with Claude Code subagents. The orchestrator must commit on behalf of the agent before reviewing:
+
+```bash
+git -C <worktree> add -A
+git -C <worktree> commit -m "<task-slug>: <brief description>"
+```
+
+Then inspect the committed diff:
+
+```bash
 git -C <worktree> diff --name-status main..HEAD
 git -C <worktree> diff --check main..HEAD
 ```
@@ -271,6 +283,10 @@ Label all evidence as `direct`, `proxy`, `local`, or `blocked`.
 Do not upgrade between levels.
 
 ## Rules
+- **⚠️ YOU MUST COMMIT before reporting done.** Run `git add` + `git commit`
+  on your task branch. If you report "done" without a commit, the orchestrator
+  has to do it for you, which wastes a review cycle. This is the #1 agent
+  failure mode — do not skip it.
 - Read project CLAUDE.md and relevant rules before editing.
 - Create branch `build/<task-slug>` and commit only scoped changes.
 - Do not touch files outside allowed paths.
@@ -292,9 +308,17 @@ Do not upgrade between levels.
   repeated execution and idempotency: running the action twice must either be
   safe or produce a documented blocked/product decision.
 
+## Shared Resource Files
+The following files are commonly edited by multiple parallel agents. When
+editing them, ONLY APPEND new entries — do not reorder, reformat, or modify
+existing lines. This minimizes merge conflicts when the orchestrator combines
+branches:
+<list — e.g. strings.xml, navigation graph, DI module, route registry>
+
 ## Handoff
 Report: branch, final commit(s), changed files, gate results, evidence labels,
-residual risks.
+residual risks. If you did not commit, say so explicitly — do not imply a
+commit exists.
 ```
 
 Adapt the template per task. Hardware/payment tasks need explicit device ownership, mutual exclusions, and human-action notification instructions.
@@ -316,6 +340,12 @@ Use **one** (serialize) when:
 - Two tasks would edit the same shared contract / migration / core aggregate / review file
 
 Do not open more agents just because capacity exists. Parallelism should reduce calendar time without increasing merge risk.
+
+**Shared resource files**: some files are legitimately edited by multiple parallel agents (e.g. `strings.xml`, navigation graphs, DI modules, route registries). These are NOT shared contracts — they don't need serialization. Instead:
+- Tell each agent in the dispatch prompt to only append, not reformat or reorder
+- Expect auto-merge to handle most cases (Git merges appends well)
+- If auto-merge fails, resolve manually by preserving both agents' additions
+- If two agents create the same type/class/enum name independently, rename one after merge to avoid redeclaration conflicts (e.g. prefix with scope: `OdPaymentStatus` vs `PaymentStatus`)
 
 **Available slots ≠ dispatch permission.** Before dispatching a new agent, check:
 - Is the current feature package still the right focus? (don't scatter across unrelated work)
@@ -460,6 +490,23 @@ In real-world testing, an independent review caught 2 critical bugs (missing sta
 
 **Multi-model review**: when available, prefer a reviewer from a different model family (e.g. use `/pi-review` or Codex for a Claude-orchestrated feature). Same-model review catches formatting and logic issues but shares the same reasoning blind spots. Cross-model review is `proxy`/advisory evidence — it can block acceptance or inform the orchestrator, but does not by itself authorize merge, push, or deploy.
 
+### Codex CLI Review (recommended cross-model review method)
+
+After each batch merge + push, run a Codex CLI review. Can run in the background without blocking the next batch dispatch:
+
+```bash
+# Synchronous (wait for result before continuing)
+codex -a full-auto -q "Review the last N commits on main. Focus on: logic errors, state transition gaps, cross-layer integration issues, naming collisions. Report findings as HIGH/MEDIUM/LOW."
+
+# Or background (don't block next batch)
+# Use Bash run_in_background, handle results when they arrive
+```
+
+Review results:
+- HIGH findings → fix immediately, in current or next batch
+- MEDIUM findings → record, fix within current feature package
+- LOW findings → record but don't block
+
 Good triggers for independent review:
 - 3-5 related worker branches merged into one feature package
 - Shared contract / API / DB schema changes
@@ -500,6 +547,8 @@ Named common mistakes to check against during review and dispatch. These are dis
 | ORC-08 | **Merge before review** | Merging a branch because the agent said "done" without actually inspecting the diff, boundaries, and gates |
 | ORC-09 | **Silent stop** | Finishing one batch and stopping without reporting status, next candidates, or blockers. Always report when stopping |
 | ORC-10 | **Idempotency blindness** | Merging cleanup/retry/event/lifecycle code without checking what happens on repeated execution |
+| ORC-11 | **Phantom commit** | Assuming the agent committed because it said "done". Always `git status` the worktree first — uncommitted work is the #1 Claude Code subagent failure mode |
+| ORC-12 | **Parallel name collision** | Two agents independently create the same type/enum/class name. Caught only after merge when build fails. Mitigate with scoped naming in dispatch prompts |
 
 Use these IDs in review comments and rejection reasons for clarity.
 
