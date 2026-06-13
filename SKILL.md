@@ -241,14 +241,20 @@ After merging all branches in a batch, run a **cross-layer integration test** �
 <project-specific test command covering all modified subsystems>
 ```
 
-### Step 7: Push + Next Batch
+### Step 7: Push + Cross-Model Review + Next Batch
 
 After merging accepted branches and resolving rejected ones:
 - **Push to origin/main** (both single-feature and roadmap modes) — keeps origin/main in sync with local main, avoids the worktree base trap for the next batch
+- **Run cross-model review** (Codex CLI or Pi). Can run in the background, but **must confirm review is launched before entering Step 4 Dispatch for the next batch**. Cannot skip, cannot forget, cannot "rush ahead without review".
 - Update progress docs if the project uses them
 - Re-read repo state (Step 1)
 - Decompose next batch (Step 2)
 - Repeat until the feature package is complete or a stop condition is hit
+
+**Review Gate (mandatory)**: before dispatching the next batch, check:
+1. Has the current batch's cross-model review been launched? (running in background = OK, not started = cannot dispatch)
+2. Has the previous batch's review result been processed? (P1/HIGH must be fixed, P2/MEDIUM must be recorded)
+If 2 consecutive batches skip review, **stop orchestration and report** — this is systemic discipline breakdown, not an occasional miss.
 
 ---
 
@@ -564,6 +570,7 @@ Named common mistakes to check against during review and dispatch. These are dis
 | ORC-12 | **Parallel name collision** | Two agents independently create the same type/enum/class name. Caught only after merge when build fails. Mitigate with scoped naming in dispatch prompts |
 | ORC-13 | **Same-module parallelism** | Two new-page tasks in the same module dispatched in parallel. Both touch strings/navigation/DI → guaranteed merge conflicts costing 10-15 min each. Serialize instead |
 | ORC-14 | **Stale worktree base** | Local main has unpushed merge commits. `isolation: "worktree"` creates from `origin/main`, not local main → agent's base is stale → merge produces "Already up to date" or duplicate work. Always push before dispatching |
+| ORC-15 | **Review skip under pressure** | "Rush ahead without review" → 3 consecutive batches skip cross-model review → findings pile up until all work is done. Review gate in Step 7 prevents this |
 
 Use these IDs in review comments and rejection reasons for clarity.
 
