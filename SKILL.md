@@ -90,6 +90,10 @@ git worktree list
 
 Read project progress/roadmap docs if present (e.g. `PROGRESS.md`, roadmap files). Understand what's done, what's blocked, what's next. Do not decompose from memory.
 
+If the project has a **concepts file** (e.g. `concepts.md`, `GLOSSARY.md`), read it — it contains stable project terms, rules, prior decisions, and historical pitfalls. This reduces constraint amnesia (ORC-06) after context compression.
+
+If the project has an **inbox file** (e.g. `inbox.md`), read it — it collects untriaged issues, user feedback, external review findings, and run observations that haven't been turned into tasks yet. Check if any inbox item should influence the current batch.
+
 If shared contract surfaces exist (proto definitions, DB migrations, API contracts, command/event handlers), identify them — they must be serialized before parallel work.
 
 **Contract sync gate**: if the repo has a contract sync gate that requires same-change consumers (e.g. a proto sync check requiring multiple consumers to update after `.proto` changes), do not dispatch an unmergeable "contract-only" branch. Keep the work serialized, but include the minimal required consumer compile/wiring updates in that same serial task, or stop with a blocker before editing.
@@ -571,6 +575,7 @@ Named common mistakes to check against during review and dispatch. These are dis
 | ORC-13 | **Same-module parallelism** | Two new-page tasks in the same module dispatched in parallel. Both touch strings/navigation/DI → guaranteed merge conflicts costing 10-15 min each. Serialize instead |
 | ORC-14 | **Stale worktree base** | Local main has unpushed merge commits. `isolation: "worktree"` creates from `origin/main`, not local main → agent's base is stale → merge produces "Already up to date" or duplicate work. Always push before dispatching |
 | ORC-15 | **Review skip under pressure** | "Rush ahead without review" → 3 consecutive batches skip cross-model review → findings pile up until all work is done. Review gate in Step 7 prevents this |
+| ORC-16 | **Role drift** | Orchestrator starts doing research, answering unrelated questions, or implementing code instead of orchestrating. Stay in your role: decompose, dispatch, review, merge, cleanup. Route unrelated input back to the user |
 
 Use these IDs in review comments and rejection reasons for clarity.
 
@@ -619,6 +624,17 @@ When running in roadmap-driven mode or long multi-batch sessions:
 **Phase transitions**: when a phase changes (e.g. from many small evidence closures to a larger feature module), consider starting a fresh orchestrator session rather than stretching the current one indefinitely. Treat repository docs and merged commits as the handoff surface, not compressed chat history. Use `/handoff` to create a durable handoff document if needed.
 
 **Progress coherence**: in continuous runs, optimize for a coherent product/module story that a human can summarize in a daily report — not for "safe and mergeable". Three related workers advancing one feature package > three unrelated workers touching three different modules.
+
+**Role discipline**: the orchestrator is one role, not all roles. During an orchestration session:
+- **Do**: decompose, dispatch, review, merge, cleanup, report status, route blockers to user
+- **Don't**: answer unrelated questions, do research tangents, implement code yourself (ORC-07/ORC-16), handle personal/work inbox items that aren't part of the current feature package
+If the user asks something outside the orchestration scope, acknowledge it and suggest handling it in a separate session — don't let the orchestrator context get polluted with unrelated work.
+
+**Local knowledge files**: for long-running or multi-session orchestration, maintain two lightweight files in the project:
+- **`concepts.md`** (or `GLOSSARY.md`): stable project terms, rules, prior decisions, historical pitfalls, and blocked concepts. Read this at Step 1 of every batch to prevent constraint amnesia. Update it when orchestration reveals a new rule or decision.
+- **`inbox.md`**: untriaged issues, user feedback, external review findings (from Codex/Pi/human), run observations, and pulse outputs. Items here are not yet tasks — they're intake. During Step 2 Decompose, check if any inbox item should influence the current batch. After an item becomes a task or is dismissed, remove it from inbox.
+
+These files survive context compression and session handoffs. They are local/static coordination state, not direct proof.
 
 ---
 
