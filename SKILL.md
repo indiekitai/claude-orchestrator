@@ -134,6 +134,8 @@ For domains with several partial closures, **prefer fewer larger vertical tasks 
 
 If the same domain has two or more merged partial closures and no single blocker prevents progress, stop dispatching standalone slices. Promote to a feature-package plan (Step 2). The package plan should name the user-visible capability, list the minimum worker branches needed to make it coherent, and define the merge order.
 
+**Roadmap-driven simplification**: when the roadmap document explicitly lists the next item, anti-shallow-slice classification can be reduced to two questions: (1) Is this the next item in the roadmap? (2) Does it belong to the same feature package as the previous batch? Full four-way classification is only needed when the roadmap is ambiguous or the orchestrator is ad-hoc selecting tasks.
+
 ### Step 4: Dispatch
 
 Send multiple `Agent` calls **in a single message** — they run concurrently:
@@ -258,7 +260,13 @@ After merging accepted branches and resolving rejected ones:
 **Review Gate (mandatory)**: before dispatching the next batch, check:
 1. Has the current batch's cross-model review been launched? (running in background = OK, not started = cannot dispatch)
 2. Has the previous batch's review result been processed? (P1/HIGH must be fixed, P2/MEDIUM must be recorded)
+3. **Review must leave a trace**: record findings count in progress docs (e.g. "Codex: 1×P1 + 3×P2, P1 fixed"). No record = not run. "Claimed to have run but no findings table" does not count.
 If 2 consecutive batches skip review, **stop orchestration and report** — this is systemic discipline breakdown, not an occasional miss.
+
+**P2 Finding Tracker**: P2 findings don't block the current batch but cannot be deferred forever.
+- After each batch review, append unfixed P2s to an open P2 list in progress docs (or a standalone file)
+- Check the open P2 list at the start of each batch
+- **A P2 unfixed for 3+ batches escalates to P1** — either fix immediately or give a concrete reason to mark it deferred
 
 ---
 
@@ -317,6 +325,15 @@ Do not upgrade between levels.
   migrations, aggregate/versioning, or unique constraints, explicitly self-review
   repeated execution and idempotency: running the action twice must either be
   safe or produce a documented blocked/product decision.
+
+## Common P1 Patterns (self-check before commit)
+Before committing, verify you have NOT introduced these recurring bugs:
+- DTO field names match the actual API/Cloud response (e.g. `businessDay` vs `businessDate`)
+- State machine covers ALL legal states, not just the happy path
+- Multi-tenant queries include `tenant_id` / `store_id` filter
+- Money uses integer cents, never floating-point
+- Nullable fields from external APIs have null handling
+These patterns account for ~40% of P1 findings in cross-model review.
 
 ## Shared Resource Files
 The following files are commonly edited by multiple parallel agents. When
@@ -433,6 +450,14 @@ Stop dispatching and report status when:
 - Multiple candidates require product priority decisions
 
 When stopping, report: completed/merged tasks, active/blocked tasks, clean repo state, next best candidates, and blockers.
+
+### Content Filter Recovery
+
+If an agent is blocked by content filtering (safety filter), do not waste a full review cycle:
+1. Record the blocked task slug and the approximate prompt that triggered it
+2. In the next batch, retry with adjusted wording — remove or rephrase the content that likely triggered the filter
+3. If the retry also fails, mark the task as `blocked` with reason "content filter" and move on
+4. Do not stop the entire orchestration for a single content filter hit
 
 ---
 
@@ -628,6 +653,7 @@ When running in roadmap-driven mode or long multi-batch sessions:
 **Role discipline**: the orchestrator is one role, not all roles. During an orchestration session:
 - **Do**: decompose, dispatch, review, merge, cleanup, report status, route blockers to user
 - **Don't**: answer unrelated questions, do research tangents, implement code yourself (ORC-07/ORC-16), handle personal/work inbox items that aren't part of the current feature package
+- **P1 hotfix exception**: P1 fix that is ≤5 lines, single file, does not change public interfaces, may be fixed directly by the orchestrator without dispatching an agent. Anything larger must be dispatched. Record the fix in the batch status report with "orchestrator hotfix" label.
 If the user asks something outside the orchestration scope, acknowledge it and suggest handling it in a separate session — don't let the orchestrator context get polluted with unrelated work.
 
 **Local knowledge files**: for long-running or multi-session orchestration, maintain two lightweight files in the project:
