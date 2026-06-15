@@ -531,29 +531,26 @@ In real-world testing, an independent review caught 2 critical bugs (missing sta
 
 **Multi-model review**: when available, prefer a reviewer from a different model family (e.g. use `/pi-review` or Codex for a Claude-orchestrated feature). Same-model review catches formatting and logic issues but shares the same reasoning blind spots. Cross-model review is `proxy`/advisory evidence — it can block acceptance or inform the orchestrator, but does not by itself authorize merge, push, or deploy.
 
-### Codex CLI Review (recommended cross-model review method)
+### Codex Review (recommended cross-model review method)
 
-After each batch merge + push, run a Codex CLI review. **Use 600-second timeout** (the model needs to read project context ~600 lines before reviewing large diffs 1000+ lines). Can run in the background without blocking the next batch dispatch:
+After each batch merge + push, run Codex review via the **companion script** — do NOT use the standalone `codex review` CLI (it has parameter conflicts, no `--wait`, and times out on large diffs). See `~/.claude/rules/codex-review.md` for full details.
 
 ```bash
-# Recommended (synchronous, 600s timeout)
-timeout 600 codex review --base <pre-merge-commit>
+PLUGIN_ROOT="$HOME/.claude/plugins/marketplaces/openai-codex/plugins/codex"
 
-# Or background (don't block next batch)
+# Recommended: blocking wait for result
+node "$PLUGIN_ROOT/scripts/codex-companion.mjs" review --wait --base <pre-merge-commit>
+
+# Or background (don't block next batch dispatch)
 # Use Bash run_in_background, handle results when they arrive
 ```
 
-**CLI parameter notes**:
-- `--base` and positional `[PROMPT]` are mutually exclusive
-- `--wait` was removed in Codex 0.139.0
-- `--uncommitted` reviews uncommitted changes (e.g. IMPL.md review)
-
 Review results:
-- P1 / HIGH findings → fix immediately, in current or next batch
-- P2 / MEDIUM findings → record, fix within current feature package
-- LOW findings → record but don't block
+- P1 findings → fix immediately, in current or next batch
+- P2 findings → record to open P2 list, fix within current feature package
+- P3 findings → record but don't block
 
-In real-world testing (12-task overnight run), Codex review caught 2×P1 + 8×P2 = 10 findings that agent self-review and orchestrator mechanical review both missed: version conflict in optimistic concurrency, navigation entry regression, date parsing crash, floating-point cents truncation, fake success toast, and pay button showing total instead of balance.
+In real-world testing (53-batch run, ~95 agents), Codex review caught 15×P1 + 37×P2 findings that agent self-review and orchestrator mechanical review both missed: DTO field name mismatches, state machine gaps, tenant_id filter omissions, floating-point cents bugs, fake success toasts, and missing null handling.
 
 Good triggers for independent review:
 - 3-5 related worker branches merged into one feature package
