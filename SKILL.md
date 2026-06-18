@@ -335,6 +335,17 @@ Before committing, verify you have NOT introduced these recurring bugs:
 - Nullable fields from external APIs have null handling
 These patterns account for ~40% of P1 findings in cross-model review.
 
+## Minimalism Ladder (self-check before commit)
+For every new function, class, or file you created, walk down this ladder.
+Stop at the first "yes":
+1. Does this need to exist at all? → delete it
+2. Does the stdlib / platform already provide it? → use that
+3. Does an installed dependency already do it? → use that
+4. Can it be a one-liner instead of a function? → inline it
+5. None of the above → keep it, but write the minimum
+Do NOT simplify security boundaries, error handling at trust boundaries,
+or accessibility code — lazy, not negligent.
+
 ## Shared Resource Files
 The following files are commonly edited by multiple parallel agents. When
 editing them, ONLY APPEND new entries — do not reorder, reformat, or modify
@@ -549,6 +560,8 @@ Review results:
 - P1 findings → fix immediately, in current or next batch
 - P2 findings → record to open P2 list, fix within current feature package
 - P3 findings → record but don't block
+
+**Review the whole invariant, not one patch at a time (avoid review ping-pong).** When a finding exposes a bug in a shared invariant/contract (a partition that must sum, a wage/total computed from parts, a state machine, a multi-place sync), do NOT just patch the one line the reviewer pointed at and immediately re-review that patch in isolation. First reason through the *complete* invariant and fix every face at once, then run ONE cross-model review of the whole feature diff. Patching a single face and re-reviewing it alone makes the reviewer see only the latest diff — so each fix exposes the next adjacent face and you ping-pong across many rounds (real case: 4 consecutive Codex rounds, each a real P1, all faces of one labor-seconds partition invariant: regular=worked−Σpremium AND wage must price every bucket AND every bucket non-null AND both projection paths — should have been one fix + one review). Symptom you're in this trap: 2+ review rounds where each new finding is in the *same* subsystem the previous fix just touched. Stop, write out the full invariant, fix all of it, review once. Sediment each face as an assertion (mechanical guard), not as another review round.
 
 In real-world testing (53-batch run, ~95 agents), Codex review caught 15×P1 + 37×P2 findings that agent self-review and orchestrator mechanical review both missed: DTO field name mismatches, state machine gaps, tenant_id filter omissions, floating-point cents bugs, fake success toasts, and missing null handling.
 
