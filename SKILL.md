@@ -17,6 +17,8 @@ Best for early development or large-module buildout where many slices can move i
 
 Treat this skill as a living runbook. When orchestration reveals a better rule, update the skill so future sessions inherit the correction.
 
+**A living runbook prunes, not just grows.** Rules only get appended here; nothing forces them out. That is itself a failure mode (ORC-17): a bloated runbook stops fitting in dispatch prompts and the orchestrator can't hold it all (worsens ORC-06 constraint amnesia). Periodically — every long run, or whenever syncing codex-orchestrator ↔ claude-orchestrator — walk each gate/anti-pattern and ask "did this actually catch a bug in a recent run?" A rule with no evidence it's working gets demoted to a docs/ appendix or deleted. Syncing means importing new discipline *and* trimming dead discipline.
+
 ## Two Modes
 
 ### Single-feature (default)
@@ -50,6 +52,8 @@ Use a single agent for depth (one complex task). Use this skill for width (many 
 ## Execution Model
 
 Claude Code agents are **synchronous**: they run and return results within the current session. No fire-and-forget, no heartbeat polling.
+
+This is a **deliberate tradeoff**, not a limitation to route around: synchronous dispatch is what makes the review→merge gates enforceable and keeps merge risk bounded. The cost is no async fan-out. When Claude Code's background/async agents mature, re-evaluate this section — but the gain to protect is the Batch Status Report (below), which is a cheap context-rebuild checkpoint. Async multi-agent work trades throughput for context-switch overload; the structured per-batch report is the antidote, so it becomes *more* valuable under async, not less.
 
 ```
 Dispatch (parallel Agent calls with isolation:"worktree")
@@ -611,6 +615,8 @@ Named common mistakes to check against during review and dispatch. These are dis
 | ORC-14 | **Stale worktree base** | Local main has unpushed merge commits. `isolation: "worktree"` creates from `origin/main`, not local main → agent's base is stale → merge produces "Already up to date" or duplicate work. Always push before dispatching |
 | ORC-15 | **Review skip under pressure** | "Rush ahead without review" → 3 consecutive batches skip cross-model review → findings pile up until all work is done. Review gate in Step 7 prevents this |
 | ORC-16 | **Role drift** | Orchestrator starts doing research, answering unrelated questions, or implementing code instead of orchestrating. Stay in your role: decompose, dispatch, review, merge, cleanup. Route unrelated input back to the user |
+| ORC-17 | **Runbook bloat** | Every run appends a rule; nothing ever removes one. The skill grows past what fits in dispatch prompts and what the orchestrator can hold (feeds ORC-06). Prune on every sync: a gate with no evidence it caught a real bug gets demoted or deleted |
+| ORC-18 | **Motion mistaken for progress** | Reporting batch/agent/commit/line counts (or token spend) as if they were outcomes. They measure activity, not delivered capability. Lead the Batch Status Report with what a user can now do; counts are secondary |
 
 Use these IDs in review comments and rejection reasons for clarity.
 
@@ -622,6 +628,11 @@ After completing each dispatch-review-merge cycle, output a structured status re
 
 ```
 ## Batch Status
+
+### Delivered (user-visible capability — the headline, not the line count)
+- <what a human can now do that they couldn't before this batch>
+  e.g. "Checkout now completes order → payment → readback end-to-end (was UI shell only)"
+- If this batch delivered no new user-visible capability, say so plainly — that is a signal, not a formatting gap.
 
 ### Completed
 - [task-slug]: merged (3 commits, 120 lines) — evidence: local
