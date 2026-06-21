@@ -84,6 +84,8 @@ ln -s "$(pwd)/claude-orchestrator" ~/.claude/skills/build-orchestrator
 | Merge 冲突 | 43%（并行）→ 0%（串行） | 0% |
 | 异模型发现 | 2×P1 + 8×P2 | 15×P1 + 37×P2 |
 
+> 这些数字读作"质量闸在规模下扛住了"，不是"越多越好"。代码行数和 Agent 数衡量的是活动量，不是交付的能力；P1 高命中率既说明 review 在起作用，也说明上游设计漏了 bug 才有得抓。目标是**少写需要修的 bug，而不是晚期多抓 bug**——把功夫下在拆分、契约和 per-task 闸上，让 finding 数在一次长跑里趋势向下。
+
 ## 文档
 
 - [完整指南](docs/full-guide.md)：功能列表、执行模型、真实案例、踩坑记录、对比表和并发规则。

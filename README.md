@@ -84,6 +84,8 @@ The loop is intentionally conservative:
 | Merge conflicts | 43% (parallel) → 0% (serial) | 0% |
 | Cross-model findings | 2×P1 + 8×P2 | 15×P1 + 37×P2 |
 
+> Read these as "the gates hold at scale," not "more is better." Lines and agent counts measure activity, not delivered capability; a high P1 catch rate means review is working *and* that upstream design left bugs to catch. The goal is fewer bugs needing a fix, not more bugs caught late — invest in decomposition, contracts, and per-task gates so the finding count trends *down* over a run.
+
 ## Documentation
 
 - [Full guide](docs/full-guide.md): features, execution model, real examples, lessons learned, comparison tables, and concurrency rules.
